@@ -66,6 +66,14 @@ async def send_yt(message: types.Message, yt: YouTube):
 
 @dp.message_handler()
 async def on_message(message: types.Message):
+    if ((command := message.get_command()) != None):
+        match command:
+            case "/start":
+                await message.reply("👋 Hello, I'm a music bot, developed by @thed1mas. Send /help to get some info")
+            case "/help":
+                await message.reply("ℹ️ Send song name to search or YouTube video link to download the song.\nMore music streaming services are comming soon")
+        return
+    
     if match := re.match(URL_REGEX, message.text):
         if match[2] not in SUPPORTED_SITES:
             log.warn(f"Unsuppored site {match[2]} asked by {message.from_user.full_name} ({message.from_id})")
