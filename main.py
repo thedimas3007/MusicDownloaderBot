@@ -12,6 +12,7 @@ from os.path import exists
 from logger import Logger
 
 URL_REGEX = r"^(https?:\/\/)?([\da-z\.-]+\.[a-z\.]{2,6})([\/\w \.-]*)\/?#?$"
+SUPPORTED_SITES = ["m.youtube.com", "youtube.com", "www.youtube.com", "youtu.be"]  # so far only YT
 
 log = Logger()
 config = load(open("config.yml"), Loader=Loader)
@@ -26,21 +27,7 @@ def save_url(url: str, path: str):
     with open(path, "wb") as out:
         out.write(r.content)
 
-
-@dp.message_handler(regexp=URL_REGEX)
-async def on_url(message: types.Message):
-    match = re.match(URL_REGEX, message.text)
-    await message.answer(text=f"Site: {match[2]}\nPayload: {match[3]}")
-
-@dp.message_handler()
-async def on_message(message: types.Message):
-    log.info(f"Searching for {message.text} from {message.from_user.full_name} ({message.from_id})...")
-    search = Search(message.text)
-    results = search.results
-    log.success(f"Found {len(results)} results")
-
-    yt = results[0]
-    yt: YouTube
+async def send_yt(message: types.Message, yt: YouTube):
     channel = Channel(yt.channel_url)
     yt.use_oauth=True
     yt.allow_oauth_cache=True
@@ -65,6 +52,27 @@ async def on_message(message: types.Message):
     log.success("Successfully uploaded")
     remove(filename)
     remove(thumb)
+
+
+@dp.message_handler()
+async def on_message(message: types.Message):
+    if match := re.match(URL_REGEX, message.text):
+        if match[2] not in SUPPORTED_SITES:
+            log.warn(f"Unsuppored site {match[2]} asked by {message.from_user.full_name} ({message.from_id})")
+            await message.reply(f"🚫 Unfortunately, {match[2]} is not currently supported")
+            return
+        else:
+            log.info(f"Downloading {message.text} {message.from_user.full_name} ({message.from_id})...")
+            send_yt(message, YouTube(message.text))
+    else:
+        log.info(f"Searching for {message.text} from {message.from_user.full_name} ({message.from_id})...")
+        search = Search(message.text)
+        results = search.results
+        log.success(f"Found {len(results)} results")
+        if (len(results) == 0):
+            await message.reply("⚠️ Nothing found")
+        else:
+            await send_yt(message, results[0])
 
 
 if __name__ == "__main__":
