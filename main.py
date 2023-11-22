@@ -82,9 +82,55 @@ async def on_message(message: types.Message):
         if (len(results) == 0):
             await message.reply("⚠️ Nothing found")
         else:
-            await send_yt(message, results[0])
+            # await send_yt(message, results[0])
+            results = results[:10]
+            buttons = []
+            for yt in results:
+                yt: YouTube
+                buttons.append([
+                    types.InlineKeyboardButton(text=yt.title, callback_data=yt.watch_url)
+                ])
+            await message.answer("🔎 Search results",
+                           reply_markup=types.InlineKeyboardMarkup(row_width=1, inline_keyboard=buttons))
 
+@dp.callback_query_handler()
+async def on_callback(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    yt = YouTube(callback.data)
+    msg = await bot.send_message(chat_id=user_id, text=f"⏳ Downloading <a href='{yt.watch_url}'>{yt.title}</a>...", parse_mode="html", disable_web_page_preview=True)
 
+    try:    
+        channel = Channel(yt.channel_url)
+        yt.use_oauth=True
+        yt.allow_oauth_cache=True
+
+        filename = f"cache/dl_{yt.video_id}.mp3"
+        thumb = f"cache/thumb_{yt.video_id}.jpg"
+
+        log.info(f"Downloading {yt.watch_url} into {filename}...")
+        yt.streams.filter(only_audio=True).first().download(filename=filename)
+        save_url(yt.thumbnail_url, thumb)
+        log.success("Succesfully donwloaded")
+        log.info("Uploading...")
+        await bot.send_audio(chat_id=user_id,
+                             audio=open(filename, "rb"), 
+                             title=yt.title,
+                             performer=channel.channel_name, 
+                             duration=yt.length,
+                             thumb=open(thumb, "rb"),
+                             caption=f"<a href='{yt.watch_url}'>{yt.title}</a>",
+                             parse_mode="html")
+        log.success("Successfully uploaded")
+    except AgeRestrictedError:
+        await callback.answer("⚠️ The video is age restricted")
+    except Exception as e:
+        await callback.answer("⚠️ Unknown exception occurred")
+        log.error(f"Unknown error occurred, caused by {callback.from_user.full_name} ({user_id})")
+        log.error(e.with_traceback())
+    
+    await msg.delete()
+    if exists(filename): remove(filename)
+    if exists(thumb): remove(thumb) 
 
 if __name__ == "__main__":
     log.info("Starting polling...")
