@@ -1,5 +1,6 @@
 import re
 import requests
+import rich
 
 from aiogram import Bot, Dispatcher, executor, types
 from asyncio import get_event_loop
@@ -8,18 +9,32 @@ from yaml import load, dump, Loader
 from pytube import Search, YouTube, Channel
 from pytube.exceptions import AgeRestrictedError
 
+from spotipy import Spotify, SpotifyClientCredentials
+
 from os import mkdir, remove
 from os.path import exists
 
 from logger import Logger
 
-URL_REGEX = r"^(https?:\/\/)?([\da-z\.-]+\.[a-z\.]{2,6})([\/\w \.-]*)\/?#?$"
-SUPPORTED_SITES = ["m.youtube.com", "youtube.com", "www.youtube.com", "youtu.be"]  # so far only YT
+# URL_REGEX = r"^(https?:\/\/)?([\da-z\.-]+\.[a-z\.]{2,6})([\/\w \.-]*)\/?#?$"
+URL_REGEX = r"^(https?:\/\/)?([\da-z\.-]+\.[a-z\.]{2,6})(.*)\/?#?$"
+YOUTUBE_DOMAINS = [
+    "m.youtube.com", "youtube.com", "www.youtube.com", "youtu.be", 
+]
+
+SPOTIFY_DOMAINS = {
+    "open.spotify.com"
+}
 
 log = Logger()
 config = load(open("config.yml"), Loader=Loader)
 bot = Bot(config["bot_token"])
 dp = Dispatcher(bot)
+
+spotify = Spotify(auth_manager=SpotifyClientCredentials(
+    client_id=config["spotify_id"],
+    client_secret=config["spotify_secret"]
+))
 
 if not exists("cache"):
     mkdir("cache")
@@ -28,6 +43,15 @@ def save_url(url: str, path: str):
     r = requests.get(url)
     with open(path, "wb") as out:
         out.write(r.content)
+
+async def send_spot(message: types.Message, track):
+    request = f"{track['artists'][0]['name']} - {track['name']}, {track['album']['name']} {track['album']['release_date']}"
+    search = Search(request)
+    results = search.results
+    if (len(results) == 0):
+        await message.reply("⚠️ Nothing found")
+    else:
+        await send_yt(message, results[0])
 
 async def send_yt(message: types.Message, yt: YouTube):
     msg = await message.answer(f"⏳ Downloading <a href='{yt.watch_url}'>{yt.title}</a>...", parse_mode="html", disable_web_page_preview=True)
@@ -71,17 +95,20 @@ async def on_message(message: types.Message):
             case "/start":
                 await message.reply("👋 Hello, I'm a music bot, developed by @thed1mas. Send /help to get some info")
             case "/help":
-                await message.reply("ℹ️ Send song name to search or YouTube video link to download the song.\nMore music streaming services are comming soon")
+                await message.reply("ℹ️ Send the name of a song or author which you would like to search or a link to download the it directly.\nCurrently only YouTube and Spotify are supported. More music streaming services are comming soon.")
         return
     
     if match := re.match(URL_REGEX, message.text):
-        if match[2] not in SUPPORTED_SITES:
+        if match[2] in YOUTUBE_DOMAINS:
+            log.info(f"Downloading from YouTube {message.text} {message.from_user.full_name} ({message.from_id})...")
+            await send_yt(message, YouTube(message.text))
+        elif match[2] in SPOTIFY_DOMAINS:
+            log.info(f"Downloading from Spotify {message.text} {message.from_user.full_name} ({message.from_id})...")
+            await send_spot(message, spotify.track(message.text))
+        else:
             log.warn(f"Unsuppored site {match[2]} asked by {message.from_user.full_name} ({message.from_id})")
             await message.reply(f"⚠️ Unfortunately, {match[2]} is not currently supported")
             return
-        else:
-            log.info(f"Downloading {message.text} {message.from_user.full_name} ({message.from_id})...")
-            send_yt(message, YouTube(message.text))
     else:
         log.info(f"Searching for {message.text} from {message.from_user.full_name} ({message.from_id})...")
         search = Search(message.text)

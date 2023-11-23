@@ -1,6 +1,10 @@
 aiogram
 asyncio
+
 rich
-pytube
-requests
+
 pyyaml
+
+requests
+pytube
+spotipy
