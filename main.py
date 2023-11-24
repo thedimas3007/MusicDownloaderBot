@@ -16,8 +16,13 @@ from os.path import exists
 
 from logger import Logger
 
-# URL_REGEX = r"^(https?:\/\/)?([\da-z\.-]+\.[a-z\.]{2,6})([\/\w \.-]*)\/?#?$"
-URL_REGEX = r"^(https?:\/\/)?([\da-z\.-]+\.[a-z\.]{2,6})(.*)\/?#?$"
+# == TODO ==
+# - song.link search and message
+# - Spotify albums support
+
+
+URL_REGEX = "^(https?:\/\/)?([\da-z\.-]+\.[a-z\.]{2,6})(.*)\/?#?$"
+
 YOUTUBE_DOMAINS = [
     "m.youtube.com", "youtube.com", "www.youtube.com", "youtu.be", 
 ]
@@ -25,6 +30,10 @@ YOUTUBE_DOMAINS = [
 SPOTIFY_DOMAINS = {
     "open.spotify.com"
 }
+SPOTIFY_PLAYLIST_REGEX = r"(?:https:\/\/open\.spotify\.com\/playlist\/|spotify:playlist:)([a-zA-Z0-9]+)"
+SPOTIFY_ALBUM_REGEX = r"(?:https:\/\/open\.spotify\.com\/album\/|spotify:album:)([a-zA-Z0-9]+)"
+
+MAX_TRACKS = 25
 
 log = Logger()
 config = load(open("config.yml"), Loader=Loader)
@@ -64,9 +73,9 @@ async def send_yt(message: types.Message, yt: YouTube):
         thumb = f"cache/thumb_{yt.video_id}.jpg"
 
         log.info(f"Downloading {yt.watch_url} into {filename}...")
-        yt.streams.filter(only_audio=True).first().download(filename=filename)
+        yt.streams.get_audio_only().download(filename=filename)
         save_url(yt.thumbnail_url, thumb)
-        log.success("Succesfully donwloaded")
+        log.success("Successfully downloaded")
         log.info("Uploading...")
         await message.answer_audio(audio=open(filename, "rb"), 
                                 title=yt.title,
@@ -100,11 +109,26 @@ async def on_message(message: types.Message):
     
     if match := re.match(URL_REGEX, message.text):
         if match[2] in YOUTUBE_DOMAINS:
-            log.info(f"Downloading from YouTube {message.text} {message.from_user.full_name} ({message.from_id})...")
+            log.info(f"Downloading from YouTube {message.text} for {message.from_user.full_name} ({message.from_id})...")
             await send_yt(message, YouTube(message.text))
         elif match[2] in SPOTIFY_DOMAINS:
-            log.info(f"Downloading from Spotify {message.text} {message.from_user.full_name} ({message.from_id})...")
-            await send_spot(message, spotify.track(message.text))
+            if pl_match := re.match(SPOTIFY_PLAYLIST_REGEX, message.text):
+                playlist = spotify.playlist(pl_match[1])
+                tracks = playlist["tracks"]["items"][:MAX_TRACKS]
+                log.info(f"Downloading {len(playlist)} items from playlist {message.text} for {message.from_user.full_name} ({message.from_id})...")
+                counter = 0
+                progress = await message.answer(f"⏳ Downloaded {counter}/{len(tracks)} items (max. {MAX_TRACKS}) from <a href='{message.text}'>{playlist['name']}</a>...", parse_mode="html")
+                for track in tracks:
+                    await send_spot(message, track["track"])
+                    counter += 1
+                    await progress.edit_text(f"⏳ Downloaded {counter}/{len(tracks)} items (max. {MAX_TRACKS}) from <a href='{message.text}'>{playlist['name']}</a>...", parse_mode="html")
+                await progress.delete()
+                await message.reply(f"✅ Finished downloading <a href='{message.text}'>{playlist['name']}</a>!", parse_mode="html")
+            elif alb_match := re.match(SPOTIFY_ALBUM_REGEX, message.text):
+                await message.reply("⚠️ Unfortunately, albums are not yet supported")
+            else:
+                log.info(f"Downloading from Spotify {message.text} for {message.from_user.full_name} ({message.from_id})...")
+                await send_spot(message, spotify.track(message.text))
         else:
             log.warn(f"Unsuppored site {match[2]} asked by {message.from_user.full_name} ({message.from_id})")
             await message.reply(f"⚠️ Unfortunately, {match[2]} is not currently supported")
