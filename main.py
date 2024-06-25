@@ -167,7 +167,7 @@ async def on_callback(callback: types.CallbackQuery):
         thumb = f"cache/thumb_{yt.video_id}.jpg"
 
         log.info(f"Downloading {yt.watch_url} into {filename}...")
-        yt.streams.filter(only_audio=True).first().download(filename=filename)
+        yt.streams.get_audio_only().download(filename=filename)
         save_url(yt.thumbnail_url, thumb)
         log.success("Succesfully donwloaded")
         log.info("Uploading...")
