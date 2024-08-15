@@ -6,5 +6,5 @@ rich
 pyyaml
 
 requests
-pytube
+youtube-dl
 spotipy
