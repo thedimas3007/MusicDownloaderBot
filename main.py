@@ -1,6 +1,7 @@
+from youtubesearchpython.__future__ import VideosSearch
+
 import re
 import requests
-import rich
 from requests import HTTPError
 
 from rich.pretty import pprint
@@ -11,10 +12,9 @@ from yaml import load, dump, Loader
 
 from odesli.Odesli import Odesli
 from yt_dlp import YoutubeDL
-from youtubesearchpython import VideosSearch
 from spotipy import Spotify, SpotifyClientCredentials
 
-from os import mkdir, remove
+from os import mkdir, remove, walk
 from os.path import exists
 
 from logger import Logger
@@ -26,7 +26,6 @@ spotify_regex = {
     "track": r"(?:https:\/\/open\.spotify\.com\/playlist\/|spotify:playlist:)([a-zA-Z0-9]+)",
     "album": r"(?:https:\/\/open\.spotify\.com\/album\/|spotify:album:)([a-zA-Z0-9]+)"
 }
-track_limit = 25
 
 log = Logger()
 config = load(open("config.yml"), Loader=Loader)
@@ -59,17 +58,17 @@ def save_url(url: str, path: str):
 
 
 async def handle_song(message: types.Message, song, meta, song_link: str):
-    log.info(f"Downloading {song.id}")
+    log.info(f"Downloading [blue]{song.id}[/]")
     await message.edit_text("⏳ Downloading...")
     ytdl.download(list(song.linksByPlatform.values())[:1])
 
     log.info(f"Saving thumbnail for {song.id}")
     thumb = save_url(meta.thumbnailUrl, f"cache/{song.id}.jpg")
 
-    log.info(f"Sending {song.id}")
-    await message.edit_text("⏳ Sending...")
+    log.info(f"Sending [blue]{song.id}[/]")
+    await message.edit_text("⏳ Uploading...")
     await message.answer_audio(types.InputFile(f"cache/{song.id}.mp3"),
-                               caption=f"__[song\\.link]({song_link})__",
+                               caption=f"_[song\\.link]({song_link})_",
                                parse_mode="MarkdownV2",
                                performer=meta.artistName,
                                title=meta.title,
@@ -79,15 +78,28 @@ async def handle_song(message: types.Message, song, meta, song_link: str):
     remove(f"cache/{song.id}.mp3")
 
 
+async def handle_youtube(message: types.Message, url: str):
+    new = await message.answer("⏳ Acquiring metadata...")
+    result = odesli.getByUrl(url)
+    yt = result.songsByProvider["youtube"]
+    meta = result.songsByProvider["youtube"]
+    if "spotify" in result.songsByProvider.keys():
+        meta = result.songsByProvider["spotify"]
+    else:
+        log.warn(f"No Spotify link found for {url}")
+
+    await handle_song(new, yt, meta, result.songLink)
+
+
 @dp.message_handler(regexp=url_regex)
 async def handle_url(message: types.Message):
-    # TODO: Add support for playlists (so far only Spotify)
+    # TODO: Add support for playlists (so far only Spotify and Youtube)
     new = await message.reply("⏳ Acquiring metadata...")
     try:
-        log.info(f"Got URL: {message.text} from {message.from_user.full_name} / {message.from_id}")
+        log.info(f"Got URL: [blue]{message.text}[/] from [blue]{message.from_user.full_name}[/] / [blue]{message.from_id}[/]")
         result = odesli.getByUrl(message.text)
         if "youtube" not in result.songsByProvider.keys():
-            log.warn(f"No YouTube link found for {message.text}")
+            log.warn(f"No YouTube link found for [yellow]{message.text}[/]")
             await message.reply("⚠ Song not found!")
             return
         yt = result.songsByProvider["youtube"]
@@ -95,12 +107,10 @@ async def handle_url(message: types.Message):
         if "spotify" in result.songsByProvider.keys():
             meta = result.songsByProvider["spotify"]
         else:
-            log.warn(f"No Spotify link found for {message.text}")
-
+            log.warn(f"No Spotify link found for [yellow]{message.text}[/]")
         await handle_song(new, yt, meta, result.songLink)
     except HTTPError as e:
         if e.response.status_code >= 400 and e.response.status_code < 500:
-            # TODO: Use YouTube as a fallback for YT links, e.g. podcasts
             log.warn(f"Code {e.response.status_code} for {message.text}")
             await new.edit_text("⚠ Song not found!")
             return
@@ -111,6 +121,34 @@ async def handle_url(message: types.Message):
         log.console.print_exception()
         await new.edit_text("⚠ Unknown error occurred!")
         return
+
+
+@dp.message_handler()
+async def handle_text(message: types.Message):
+    log.info(f"Got text: [blue]{message.text}[/] from [blue]{message.from_user.full_name}[/] / [blue]{message.from_id}[/]")
+    log.info(f"Searching [blue]{message.text}[/]")
+    new = await message.reply("⏳ Searching...")
+
+    search = VideosSearch(message.text, limit=config["search_limit"])
+    results = (await search.next())["result"]
+    log.info(f"Got {len(results)} results")
+    if len(results) == 0:
+        await new.edit_text("🔎 No results found")
+        return
+
+    buttons = []
+    for vid in results:
+        buttons.append([
+            types.InlineKeyboardButton(text=f"{vid['title']} - {vid['channel']['name']}", callback_data=vid["link"])
+        ])
+    await new.edit_text("🔎 Search results", reply_markup=types.InlineKeyboardMarkup(row_width=1, inline_keyboard=buttons))
+
+
+@dp.callback_query_handler()
+async def handle_callback(query: types.CallbackQuery):
+    log.info(f"Got callback: [blue]{query.data}[/] from [blue]{query.from_user.full_name}[/] / [blue]{query.from_user.id}[/]")
+    await query.answer()
+    await handle_youtube(query.message, query.data)
 
 
 if __name__ == "__main__":
