@@ -19,6 +19,15 @@ from os.path import exists
 
 from logger import Logger
 
+# TODO:
+# - Add support for playlists/albums for Spotify and Youtube
+#   - Ability to stop downloading
+# - Multiple pages in search results
+# - Add metadata to MP3 files
+# - Spotify search
+# - "Cache" channel with songs
+
+
 url_regex = r"^(https?:\/\/)?([\da-z\.-]+\.[a-z\.]{2,6})(.*)\/?#?$"
 youtube_domains = ("m.youtube.com", "youtube.com", "www.youtube.com", "youtu.be", "music.youtube.com")
 spotify_domains = ("open.spotify.com",)
@@ -48,6 +57,13 @@ spotify = Spotify(auth_manager=SpotifyClientCredentials(
 
 if not exists("cache"):
     mkdir("cache")
+else:
+    if w := walk("cache"):
+        log.info("Clearing cache...")
+        for f in w:
+            for file in f[2]:
+                log.info(f"Removing [yellow]{f[0]}/{file}[/]")
+                remove(f[0] + "/" + file)
 
 
 def save_url(url: str, path: str):
@@ -62,7 +78,7 @@ async def handle_song(message: types.Message, song, meta, song_link: str):
     await message.edit_text("⏳ Downloading...")
     ytdl.download(list(song.linksByPlatform.values())[:1])
 
-    log.info(f"Saving thumbnail for {song.id}")
+    log.info(f"Saving thumbnail for [blue]{song.id}[/]")
     thumb = save_url(meta.thumbnailUrl, f"cache/{song.id}.jpg")
 
     log.info(f"Sending [blue]{song.id}[/]")
