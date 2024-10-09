@@ -1,10 +1,9 @@
 aiogram
 asyncio
-
-rich
-
+odesli
 pyyaml
-
 requests
-youtube-dl
+rich
 spotipy
+youtube-search-python
+yt_dlp
