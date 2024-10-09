@@ -42,12 +42,14 @@ bot = Bot(config["bot_token"])
 dp = Dispatcher(bot)
 odesli = Odesli()
 ytdl = YoutubeDL({
-    'format': 'bestaudio/best',
+    "format": "bestaudio/best",
     "outtmpl": "cache/%(id)s.%(ext)s",
-    'postprocessors': [{
-        'key': 'FFmpegExtractAudio',
-        'preferredcodec': 'mp3',
-        'preferredquality': '320',
+    "username": "oauth2",
+    "password": "",
+    "postprocessors": [{
+        "key": "FFmpegExtractAudio",
+        "preferredcodec": "mp3",
+        "preferredquality": "320",
     }],
 })
 spotify = Spotify(auth_manager=SpotifyClientCredentials(
