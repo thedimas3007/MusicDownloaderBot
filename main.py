@@ -117,7 +117,7 @@ async def handle_url(message: types.Message):
         result = odesli.getByUrl(message.text)
         if "youtube" not in result.songsByProvider.keys():
             log.warn(f"No YouTube link found for [yellow]{message.text}[/]")
-            await message.reply("⚠ Song not found!")
+            await new.edit_text("⚠ Song not found!")
             return
         yt = result.songsByProvider["youtube"]
         meta = result.songsByProvider["youtube"]
