@@ -44,7 +44,7 @@ odesli = Odesli()
 ytdl = YoutubeDL({
     "format": "bestaudio/best",
     "outtmpl": "cache/%(id)s.%(ext)s",
-    "cookies": "cookies.txt",
+    "cookiefile": "cookies.txt",
     "postprocessors": [{
         "key": "FFmpegExtractAudio",
         "preferredcodec": "mp3",
