@@ -5,7 +5,7 @@ import requests
 from requests import HTTPError
 
 from rich.pretty import pprint
-from rich import inspect
+from rich import inspect, print
 
 from aiogram import Bot, Dispatcher, executor, types
 from yaml import load, dump, Loader
@@ -74,6 +74,16 @@ def save_url(url: str, path: str):
     return path
 
 
+def parse_duration(string: str) -> int:
+    split = list(map(int, string.split(":")))
+    if len(split) == 2:
+        return split[0]*60 + split[1]
+    elif len(split) == 3:
+        return split[0]*3600 + split[1]*60 + split[2]
+    else:
+        return 0
+
+
 async def handle_song(message: types.Message, song, meta, song_link: str):
     log.info(f"Downloading [blue]{song.id}[/]")
     await message.edit_text("⏳ Downloading...")
@@ -106,6 +116,41 @@ async def handle_youtube(message: types.Message, url: str):
         log.warn(f"No Spotify link found for {url}")
 
     await handle_song(new, yt, meta, result.songLink)
+
+
+async def handle_inline(message: types.Message, url: str):
+    message.edit_reply_markup(types.InlineKeyboardMarkup().add(
+        types.InlineKeyboardButton(text=f"⏳ Acquiring metadata...", callback_data=f"nothing")
+    ))
+    result = odesli.getByUrl(url)
+    yt = result.songsByProvider["youtube"]
+    meta = result.songsByProvider["youtube"]
+    if "spotify" in result.songsByProvider.keys():
+        meta = result.songsByProvider["spotify"]
+    else:
+        log.warn(f"No Spotify link found for {url}")
+        log.info(f"Downloading [blue]{yt.id}[/]")
+    
+    message.edit_reply_markup(types.InlineKeyboardMarkup().add(
+        types.InlineKeyboardButton(text=f"⏳ Downloading...", callback_data=f"nothing")
+    ))
+    ytdl.download(list(yt.linksByPlatform.values())[:1])
+
+    log.info(f"Saving thumbnail for [blue]{yt.id}[/]")
+    thumb = save_url(meta.thumbnailUrl, f"cache/{yt.id}.jpg")
+
+    log.info(f"Sending [blue]{yt.id}[/]")
+    message.edit_reply_markup(types.InlineKeyboardMarkup().add(
+        types.InlineKeyboardButton(text=f"⏳ Uploading...", callback_data=f"nothing")
+    ))
+    await message.edit_media(types.InputMedia(f"cache/{yt.id}.mp3"),
+                               caption=f"_[song\\.link]({result.songLink})_",
+                               parse_mode="MarkdownV2",
+                               performer=meta.artistName,
+                               title=meta.title,
+                               thumb=open(thumb, "rb"), reply_markup=types.InlineKeyboardMarkup.clean())
+    remove(thumb)
+    remove(f"cache/{yt.id}.mp3")
 
 
 @dp.message_handler(regexp=url_regex)
@@ -155,8 +200,9 @@ async def handle_text(message: types.Message):
 
     buttons = []
     for vid in results:
+        print(vid)
         buttons.append([
-            types.InlineKeyboardButton(text=f"{vid['title']} - {vid['channel']['name']}", callback_data=vid["link"])
+            types.InlineKeyboardButton(text=f"{vid['title']} - {vid['channel']['name']}", callback_data=f"download_{vid['link']}")
         ])
     await new.edit_text("🔎 Search results", reply_markup=types.InlineKeyboardMarkup(row_width=1, inline_keyboard=buttons))
 
@@ -164,8 +210,58 @@ async def handle_text(message: types.Message):
 @dp.callback_query_handler()
 async def handle_callback(query: types.CallbackQuery):
     log.info(f"Got callback: [blue]{query.data}[/] from [blue]{query.from_user.full_name}[/] / [blue]{query.from_user.id}[/]")
-    await query.answer()
-    await handle_youtube(query.message, query.data)
+    if query.data == "nothing":
+        await query.answer()
+        return
+    split = query.data.split("_", maxsplit=1)
+    if len(split) != 2:
+        await query.answer("Invalid query specified")
+        return
+    category, payload = split
+    match category:
+        case "download":
+            await handle_youtube(query.message, payload)
+        case "inline":
+            await handle_inline(query.message, payload)
+        case _:
+            await query.answer("Invalid query specified")
+
+
+@dp.inline_handler()
+async def inline_handler(inline_query: types.InlineQuery):
+    # inspect(inline_query)
+    query = inline_query.query.strip()
+    if query == "":
+        return
+
+    search = VideosSearch(query, limit=config["search_limit"])
+    print(query)
+    results = (await search.next())["result"]
+    if len(results) == 0:
+        return
+
+    query_results = []
+    for i, vid in enumerate(results):
+        thumb = vid["thumbnails"][0]
+        query_results.append(
+            types.InlineQueryResultArticle(
+                id=str(i),
+                title=vid["title"],
+                description=vid["duration"],
+                thumb_url=thumb["url"],
+                thumb_height=thumb["height"],
+                thumb_width=thumb["width"],
+                input_message_content=types.InputTextMessageContent(
+                    f"⬇ _[YouTube]({vid['link']})_",
+                    parse_mode="MarkdownV2",
+                    disable_web_page_preview=True
+                ),
+                reply_markup=types.InlineKeyboardMarkup().add(
+                    types.InlineKeyboardButton(text=f"Download", callback_data=f"inline_{vid['link']}")
+                )
+            )
+        )
+    await bot.answer_inline_query(inline_query.id, results=query_results, cache_time=1)
 
 
 if __name__ == "__main__":
